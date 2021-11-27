@@ -2,7 +2,7 @@ import argparse
 import random
 import torchtext
 from torchtext.legacy import data
-from GPT_dataset import *
+from custom_dataset import *
 from utils import read_text
 from transformers import T5Tokenizer, AutoModelForCausalLM
 from transformers import Trainer
@@ -20,7 +20,7 @@ def define_argparser():
     p.add_argument('--valid_ratio', type=float, default=.2)
     p.add_argument('--batch_size_per_device', type=int, default=48)
     p.add_argument('--n_epochs', type=int, default=5)
-
+    p.add_argument('--model_type', type=str, default='GPT2')
     p.add_argument('--warmup_ratio', type=float, default=.2)
 
     p.add_argument('--max_length', type=int, default=512)
@@ -41,8 +41,8 @@ def get_datasets(fn, valid_ratio=.2):
     output_seq = [e[1] for e in shuffled]
     idx = int(len(input_seq) * (1 - valid_ratio))
 
-    train_dataset = GPTDataset(input_seq[:idx], output_seq[:idx])
-    valid_dataset = GPTDataset(input_seq[idx:], output_seq[idx:])
+    train_dataset = load_Dataset(input_seq[:idx], output_seq[:idx])
+    valid_dataset = load_Dataset(input_seq[idx:], output_seq[idx:])
 
     return train_dataset, valid_dataset
 
@@ -96,7 +96,7 @@ def main(config):
     trainer = Trainer(
         model=model,
         args=training_args,
-        data_collator=GPTCollator(tokenizer,
+        data_collator=dataCollator(tokenizer,
                                   config.max_length,
                                   with_text=False),
         train_dataset=train_dataset,
