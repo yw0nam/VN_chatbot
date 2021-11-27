@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 
 class dataCollator():
 
-    def __init__(self, tokenizer, max_length, with_text=True, model_type='GPT2'):
+    def __init__(self, tokenizer, max_length, with_text=True, model_type='causal_lm'):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.with_text = with_text
@@ -13,7 +13,7 @@ class dataCollator():
         input_seq = [s['input_seq'] for s in samples]
         output_seq = [s['output_seq'] for s in samples]
         
-        if self.model_type == 'BART':
+        if self.model_type == 'seq2seq':
             input_encoding = self.tokenizer(
                 input_seq,
                 padding=True,
@@ -29,17 +29,12 @@ class dataCollator():
                 return_tensors="pt",
                 max_length=self.max_length
             )
-            # labels = output_encoding['input_ids']
-            # labels = [
-            #     [(label if label != self.tokenizer.pad_token_id else -100) for label in labels_example] for labels_example in labels
-            # ]
-            # labels = torch.tensor(labels)
             return_value = {
                 'input_ids': input_encoding['input_ids'],
                 'attention_mask': input_encoding['attention_mask'],
                 'labels': output_encoding['input_ids'],
             }
-        elif self.model_type == 'GPT2':
+        elif self.model_type == 'causal_lm':
             seq = [input_seq+'</s>'+output_seq for input_seq, output_seq in zip(input_seq,output_seq)]
             encoding = self.tokenizer(
                 seq,

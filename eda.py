@@ -2,8 +2,8 @@
 import random
 import torchtext
 from torchtext.legacy import data
-from GPT_dataset import *
-from utils import read_text
+from custom_dataset import *
+from utils import *
 from transformers import T5Tokenizer, AutoModelForCausalLM
 from transformers import Trainer
 from transformers import TrainingArguments
@@ -11,38 +11,30 @@ import torch
 from torch.utils.data import DataLoader
 import re
 import pandas as pd
+import json
 # %%
-def get_datasets(fn, valid_ratio=.2):
-     # Get list of labels and list of texts.
-    input_seq, output_seq = read_text(fn)
+from transformers import MBartForConditionalGeneration, MBart50TokenizerFast, MBartTokenizer, MBartForCausalLM
 
-    # Shuffle before split into train and validation set.
-    shuffled = list(zip(input_seq, output_seq))
-    random.shuffle(shuffled)
-    input_seq = [e[0] for e in shuffled]
-    output_seq = [e[1] for e in shuffled]
-    idx = int(len(input_seq) * (1 - valid_ratio))
-
-    train_dataset = GPTDataset(input_seq[:idx], output_seq[:idx])
-    valid_dataset = GPTDataset(input_seq[idx:], output_seq[idx:])
-
-    return train_dataset, valid_dataset
 # %%
-tokenizer = T5Tokenizer.from_pretrained("rinna/japanese-gpt2-medium")
+# %%
+tokenizer = MBartTokenizer.from_pretrained('facebook/mbart-large-cc25')
+# tokenizer = T5Tokenizer.from_pretrained("rinna/japanese-gpt2-medium")
+tokenizer = MBart50TokenizerFast.from_pretrained("facebook/mbart-large-cc25",
+                                                 src_lang="ja_XX", tgt_lang="ja_XX")
 tokenizer.do_lower_case = True  # due to some bug of tokenizer config loading
 # %%
-import json
-with open('./data/special_token_removed.json') as f:
+with open('./data/special_token.json') as f:
     special_tokens = json.load(f)
-# %%
+    special_tokens['additional_special_tokens'].append('ja_XX')
 tokenizer.add_special_tokens(special_tokens)
 # %%
-model = AutoModelForCausalLM.from_pretrained('./model//yuzubot_context/').cuda()
+# model = AutoModelForCausalLM.from_pretrained('./model//yuzubot_context/').cuda()
 # %%
 train_dataset, valid_dataset = get_datasets(
-    fn='./data/QA.context.tsv',
+    fn='./data/QA.tsv',
     valid_ratio=0.1
 )
+
 # %%
 temp = []
 idx = 0
@@ -52,7 +44,7 @@ for i in valid_dataset:
     if idx == 5:
         break
 # %%
-collator = GPTCollator(tokenizer, 512)
+collator = dataCollator(tokenizer, 512, model_type='BART')
 data = collator(temp)
 # %%
 # This code from https://huggingface.co/ushikado/yuyuyui-chatbot.

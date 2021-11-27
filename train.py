@@ -3,56 +3,47 @@ import random
 import torchtext
 from torchtext.legacy import data
 from custom_dataset import *
-from utils import read_text
-from transformers import T5Tokenizer, AutoModelForCausalLM
+from utils import *
 from transformers import Trainer
 from transformers import TrainingArguments
 import torch
 import json
-
+from transformers import AutoModelForCausalLM
 def define_argparser():
     p = argparse.ArgumentParser()
 
     p.add_argument('--model_fn', required=True)
     p.add_argument('--train_fn', required=True)
-    p.add_argument('--pretrained_model_name', type=str, default='rinna/japanese-gpt2-medium')
     p.add_argument('--gradient_accumulation_steps', type=int, default=4)
     p.add_argument('--valid_ratio', type=float, default=.2)
     p.add_argument('--batch_size_per_device', type=int, default=48)
     p.add_argument('--n_epochs', type=int, default=5)
-    p.add_argument('--model_type', type=str, default='GPT2')
+    p.add_argument('--model', type=str, default='gpt2')
+    p.add_argument('--model_type', type=str, default='causal_lm')
     p.add_argument('--warmup_ratio', type=float, default=.2)
-
     p.add_argument('--max_length', type=int, default=512)
 
     config = p.parse_args()
 
     return config
 
-
-def get_datasets(fn, valid_ratio=.2):
-     # Get list of labels and list of texts.
-    input_seq, output_seq = read_text(fn)
-
-    # Shuffle before split into train and validation set.
-    shuffled = list(zip(input_seq, output_seq))
-    random.shuffle(shuffled)
-    input_seq = [e[0] for e in shuffled]
-    output_seq = [e[1] for e in shuffled]
-    idx = int(len(input_seq) * (1 - valid_ratio))
-
-    train_dataset = load_Dataset(input_seq[:idx], output_seq[:idx])
-    valid_dataset = load_Dataset(input_seq[idx:], output_seq[idx:])
-
-    return train_dataset, valid_dataset
-
-
 def main(config):
     # Get pretrained tokenizer.
-    tokenizer = T5Tokenizer.from_pretrained(config.pretrained_model_name)
-    tokenizer.do_lower_case = True
     with open('./data/special_token.json') as f:
         special_tokens = json.load(f)
+        
+    if config.model == 'gpt2':
+        from transformers import T5Tokenizer
+        tokenizer = T5Tokenizer.from_pretrained('rinna/japanese-gpt2-medium')
+        model = AutoModelForCausalLM.from_pretrained('rinna/japanese-gpt2-medium')
+    elif config.model == 'mbart':
+        from transformers import MBartTokenizer
+        tokenizer = MBartTokenizer.from_pretrained("facebook/mbart-large-cc25",
+                                                 src_lang="ja_XX", tgt_lang="ja_XX")
+        model = AutoModelForCausalLM.from_pretrained("facebook/mbart-large-cc25")
+        special_tokens['additional_special_tokens'].append('ja_XX')
+    
+    tokenizer.do_lower_case = True
     # Get datasets and index to label map.
     train_dataset, valid_dataset = get_datasets(
         config.train_fn,
@@ -73,14 +64,11 @@ def main(config):
     )
 
     # Get pretrained model with specified softmax layer.
-    model = AutoModelForCausalLM.from_pretrained(
-        config.pretrained_model_name
-    )
     tokenizer.add_special_tokens(special_tokens)
     model.resize_token_embeddings(len(tokenizer))
     
     training_args = TrainingArguments(
-        output_dir='./checkpoints',
+        output_dir='./model/checkpoints',
         num_train_epochs=config.n_epochs,
         per_device_train_batch_size=config.batch_size_per_device,
         per_device_eval_batch_size=config.batch_size_per_device,
@@ -98,21 +86,22 @@ def main(config):
         args=training_args,
         data_collator=dataCollator(tokenizer,
                                   config.max_length,
-                                  with_text=False),
+                                  with_text=False,
+                                  model_type=config.model_type),
         train_dataset=train_dataset,
         eval_dataset=valid_dataset,
     )
 
     trainer.train()
     
-    trainer.model.save_pretrained('./model/yuzubot_context')
+    trainer.model.save_pretrained(config.model_fn)
     torch.save({
         # 'model': trainer.model.state_dict(),
         'config': config,
         # 'vocab': None,
         # 'classes': None,
         # 'tokenizer': tokenizer,
-    }, config.model_fn)
+    }, config.model_fn + 'train_config.json')
 
 
 if __name__ == '__main__':
