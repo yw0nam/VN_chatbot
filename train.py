@@ -14,7 +14,8 @@ def define_argparser():
 
     p.add_argument('--model_fn', required=True)
     p.add_argument('--train_fn', required=True)
-    p.add_argument('--gradient_accumulation_steps', type=int, default=4)
+    p.add_argument('--valid_fn', required=True)
+    p.add_argument('--gradient_accumulation_steps', type=int, default=2)
     p.add_argument('--valid_ratio', type=float, default=.2)
     p.add_argument('--batch_size_per_device', type=int, default=48)
     p.add_argument('--n_epochs', type=int, default=5)
@@ -22,6 +23,7 @@ def define_argparser():
     p.add_argument('--model_type', type=str, default='causal_lm')
     p.add_argument('--warmup_ratio', type=float, default=.2)
     p.add_argument('--max_length', type=int, default=512)
+    p.add_argument('--load_weight', default=None)
 
     config = p.parse_args()
 
@@ -40,16 +42,20 @@ def main(config):
         from transformers import MBartTokenizer
         tokenizer = MBartTokenizer.from_pretrained("facebook/mbart-large-cc25",
                                                  src_lang="ja_XX", tgt_lang="ja_XX")
-        model = AutoModelForCausalLM.from_pretrained("facebook/mbart-large-cc25")
+        if config.load_weight:
+            model = AutoModelForCausalLM.from_pretrained(config.load_weight)
+        else:
+            model = AutoModelForCausalLM.from_pretrained("facebook/mbart-large-cc25")
         special_tokens['additional_special_tokens'].append('ja_XX')
     
     tokenizer.do_lower_case = True
     # Get datasets and index to label map.
-    train_dataset, valid_dataset = get_datasets(
-        config.train_fn,
-        valid_ratio=config.valid_ratio
-    )
-
+#     train_dataset, valid_dataset = get_datasets(
+#         config.train_fn,
+#         valid_ratio=config.valid_ratio
+#     )
+    train_dataset = get_datasets(config.train_fn)
+    valid_dataset = get_datasets(config.valid_fn)
     print(
         '|train| =', len(train_dataset),
         '|valid| =', len(valid_dataset),
@@ -65,7 +71,8 @@ def main(config):
 
     # Get pretrained model with specified softmax layer.
     tokenizer.add_special_tokens(special_tokens)
-    model.resize_token_embeddings(len(tokenizer))
+    if not config.load_weight:
+        model.resize_token_embeddings(len(tokenizer))
     
     training_args = TrainingArguments(
         output_dir='./model/checkpoints',
@@ -73,12 +80,14 @@ def main(config):
         per_device_train_batch_size=config.batch_size_per_device,
         per_device_eval_batch_size=config.batch_size_per_device,
         warmup_steps=n_warmup_steps,
-        weight_decay=0.01,
+#         weight_decay=0.01,
         fp16=True,
         evaluation_strategy='epoch',
         logging_steps=n_total_iterations // 100,
-        save_steps=n_total_iterations // config.n_epochs,
+        save_strategy ='epoch',
+#         save_steps=n_total_iterations // config.n_epochs,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
+        load_best_model_at_end=True
     )
     
     trainer = Trainer(
